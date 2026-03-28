@@ -44,6 +44,18 @@ def load_h5_model_safely(model_path):
                         
                         # Save it back
                         f.attrs['model_config'] = json.dumps(model_config).encode('utf-8')
+                        
+                    # Also need to fix optimizer 'lr' -> 'learning_rate' in training_config
+                    if 'training_config' in f.attrs:
+                        training_config = json.loads(f.attrs['training_config'].decode('utf-8') if isinstance(f.attrs['training_config'], bytes) else f.attrs['training_config'])
+                        if 'optimizer_config' in training_config and 'config' in training_config['optimizer_config']:
+                            if 'lr' in training_config['optimizer_config']['config']:
+                                # Rename 'lr' to 'learning_rate'
+                                training_config['optimizer_config']['config']['learning_rate'] = training_config['optimizer_config']['config'].pop('lr')
+                            if 'decay' in training_config['optimizer_config']['config']:
+                                # Remove unsupported 'decay' argument
+                                del training_config['optimizer_config']['config']['decay']
+                        f.attrs['training_config'] = json.dumps(training_config).encode('utf-8')
                 
                 # Load the patched model
                 model = tf.keras.models.load_model(temp_path)
