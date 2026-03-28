@@ -201,15 +201,49 @@ if st.button("🔬 Analyze miRNA Impacts", key="calculate"):
     tab1, tab2, tab3, tab4 = st.tabs(["Force Plot", "Waterfall Plot", "Decision Plot", "Mechanistic Insights"])
     
     with tab1:
-        st.subheader("Feature Impact Visualization")
-        explanation = shap.Explanation(
-            values=shap_values, 
-            base_values=base_value, 
-            feature_names=input_df.columns,
-            data=input_df.values
-        )
-        shap.plots.force(explanation, matplotlib=True, show=False, figsize=(20, 4))
-        st.pyplot(plt.gcf(), clear_figure=True)
+        st.subheader("Feature Impact Visualization (Force Plot)")
+        try:
+            explanation = shap.Explanation(
+                values=shap_values, 
+                base_values=base_value, 
+                feature_names=input_df.columns,
+                data=input_df.values
+            )
+            shap.plots.force(explanation, matplotlib=True, show=False, figsize=(20, 4))
+            st.pyplot(plt.gcf(), clear_figure=True)
+        except Exception as e:
+            st.error(f"Force Plot generation failed: {str(e)}")
+            
+    with tab2:
+        st.subheader("Feature Impact Visualization (Waterfall Plot)")
+        try:
+            # Waterfall plot specifically requires shap.Explanation object with scalar base_value
+            explanation = shap.Explanation(
+                values=shap_values, 
+                base_values=base_value, 
+                data=input_df.values[0],  # Must be 1D for waterfall
+                feature_names=input_df.columns
+            )
+            fig, ax = plt.subplots(figsize=(10, 6))
+            shap.plots.waterfall(explanation, show=False)
+            st.pyplot(fig, clear_figure=True)
+        except Exception as e:
+            st.error(f"Waterfall Plot generation failed: {str(e)}")
+            
+    with tab3:
+        st.subheader("Feature Impact Visualization (Decision Plot)")
+        try:
+            fig, ax = plt.subplots(figsize=(10, 6))
+            shap.decision_plot(
+                base_value, 
+                shap_values, 
+                features=input_df.iloc[0], 
+                feature_names=list(input_df.columns),
+                show=False
+            )
+            st.pyplot(fig, clear_figure=True)
+        except Exception as e:
+            st.error(f"Decision Plot generation failed: {str(e)}")
     
     with tab4:
         st.subheader("Mechanistic Insights")
