@@ -161,6 +161,7 @@ if st.button("🔬 Analyze miRNA Impacts", key="calculate"):
     input_df = prepare_input_data()
     
     # Prediction
+    # Use suppress_warnings to hide tf warning messages if possible, but mainly call predict safely
     prediction = model.predict(input_df.values, verbose=0)[0][0]
     st.header("📈 Diagnostic Prediction")    
     st.metric("OSCC Probability", f"{prediction:.4f}", 
@@ -168,9 +169,33 @@ if st.button("🔬 Analyze miRNA Impacts", key="calculate"):
              delta_color="inverse")
     
     # SHAP explanation
-    explainer = shap.DeepExplainer(model, background_data.values)
-    shap_values = np.squeeze(np.array(explainer.shap_values(input_df.values)))
-    base_value = float(explainer.expected_value[0].numpy())
+    # Fix for SHAP DeepExplainer compatibility with TensorFlow 2.15+
+    # In newer TF versions, DeepExplainer breaks because shape is a tuple instead of TensorShape
+    # We use ExactExplainer or KernelExplainer as a reliable fallback, or GradientExplainer for deep models
+    try:
+        explainer = shap.DeepExplainer(model, background_data.values)
+        shap_values = np.squeeze(np.array(explainer.shap_values(input_df.values)))
+        base_value = float(explainer.expected_value[0].numpy())
+    except Exception as e:
+        # Fallback to KernelExplainer which is model-agnostic and won't suffer from TF internal changes
+        # We wrap the model predict function
+        def predict_fn(x):
+            return model.predict(x, verbose=0)
+            
+        # Use a summary of background data to keep it fast
+        background_summary = shap.kmeans(background_data.values, 10)
+        explainer = shap.KernelExplainer(predict_fn, background_summary)
+        
+        # Calculate shap values
+        shap_values_raw = explainer.shap_values(input_df.values)
+        
+        # KernelExplainer returns a list of arrays or a single array depending on output dims
+        if isinstance(shap_values_raw, list):
+            shap_values = np.squeeze(shap_values_raw[0])
+        else:
+            shap_values = np.squeeze(shap_values_raw)
+            
+        base_value = float(explainer.expected_value[0] if isinstance(explainer.expected_value, (list, np.ndarray)) else explainer.expected_value)
     
     # Visualization tabs
     tab1, tab2, tab3, tab4 = st.tabs(["Force Plot", "Waterfall Plot", "Decision Plot", "Mechanistic Insights"])
