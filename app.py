@@ -6,6 +6,54 @@ import tensorflow as tf
 import matplotlib.pyplot as plt
 from matplotlib import rcParams
 
+# Fix compatibility issue with old Keras models in tf 2.15+
+import h5py
+import os
+import json
+
+def load_h5_model_safely(model_path):
+    try:
+        # First try normal loading
+        return tf.keras.models.load_model(model_path)
+    except Exception as e:
+        if 'dtype' in str(e) and 'GlorotUniform' in str(e):
+            # This is the exact error we're seeing: dtype incompatibility in initializers
+            # We need to manually strip the 'dtype' argument from the model config inside the h5 file
+            import tempfile
+            import shutil
+            
+            # Create a temporary copy to modify
+            temp_dir = tempfile.mkdtemp()
+            temp_path = os.path.join(temp_dir, 'temp_model.h5')
+            shutil.copy2(model_path, temp_path)
+            
+            try:
+                with h5py.File(temp_path, 'r+') as f:
+                    if 'model_config' in f.attrs:
+                        # Parse the model config
+                        model_config = json.loads(f.attrs['model_config'].decode('utf-8') if isinstance(f.attrs['model_config'], bytes) else f.attrs['model_config'])
+                        
+                        # Walk through and remove 'dtype' from initializers
+                        if 'config' in model_config and 'layers' in model_config['config']:
+                            for layer in model_config['config']['layers']:
+                                if 'config' in layer:
+                                    for init_key in ['kernel_initializer', 'bias_initializer']:
+                                        if init_key in layer['config'] and isinstance(layer['config'][init_key], dict):
+                                            if 'config' in layer['config'][init_key] and 'dtype' in layer['config'][init_key]['config']:
+                                                del layer['config'][init_key]['config']['dtype']
+                        
+                        # Save it back
+                        f.attrs['model_config'] = json.dumps(model_config).encode('utf-8')
+                
+                # Load the patched model
+                model = tf.keras.models.load_model(temp_path)
+                return model
+            finally:
+                # Clean up
+                shutil.rmtree(temp_dir, ignore_errors=True)
+        else:
+            raise e
+
 # Configure matplotlib for better visualization
 rcParams['font.family'] = 'sans-serif'
 rcParams['font.size'] = 12
@@ -50,7 +98,7 @@ def load_background_data():
 # Load the pre-trained model
 @st.cache_resource
 def load_model():
-    return tf.keras.models.load_model('data/OSCC_MODEL.h5')  # 更新为OSCC模型
+    return load_h5_model_safely('data/OSCC_MODEL.h5')  # 更新为安全的加载方式
 
 # Initialize data and model
 background_data = load_background_data()
